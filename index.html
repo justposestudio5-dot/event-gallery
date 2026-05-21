@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Justpose Photobooth | Professional Gallery</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <style>
+        :root { --bg: #0f0f12; --card: #16161a; --text: #ffffff; --muted: #a0a0a0; --accent: #00ff88; --shadow: 0 10px 30px rgba(0,0,0,0.5); --border: rgba(255,255,255,0.08); }
+        [data-theme="light"] { --bg: #f4f4f7; --card: #ffffff; --text: #2d3436; --muted: #636e72; --accent: #2d3436; --shadow: 0 10px 30px rgba(0,0,0,0.05); --border: rgba(0,0,0,0.05); }
+        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; transition: background 0.3s; overflow-x: hidden; }
+        .theme-toggle { position: fixed; top: 20px; right: 20px; z-index: 5000; background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 10px; font-weight: bold; box-shadow: var(--shadow); }
+        
+        .main-header { padding: 60px 20px 20px; text-align: center; }
+        .main-title { font-size: 42px; font-family: 'Impact', sans-serif; letter-spacing: 2px; margin: 0; color: #ffffff; }
+        .sub-title { font-size: 14px; letter-spacing: 4px; color: var(--muted); text-transform: uppercase; font-weight: bold; margin-top: 5px; }
+        
+        .loader-box { margin: 25px auto; width: 180px; text-align: center; }
+        #eventSubtitle { font-size: 11px; font-weight: bold; letter-spacing: 2px; display: block; margin-bottom: 8px; color: var(--muted); }
+        .bar-bg { height: 3px; background: var(--border); border-radius: 10px; overflow: hidden; position: relative; }
+        .bar-fill { position: absolute; height: 100%; width: 40%; background: var(--accent); animation: slide 2s infinite ease-in-out; }
+        @keyframes slide { 0% { left: -40%; } 100% { left: 100%; } }
+        
+        .master-actions-container { display: flex; justify-content: center; width: 100%; margin-top: 20px; }
+        .master-actions { display: flex; gap: 10px; }
+        .btn-event-fb{ width: 30px; height: 30px; border-radius: 40%; display: flex; align-items: center; justify-content: center; text-decoration: none; border: none; padding: 10px; cursor: pointer; } 
+.btn-event-ig { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; text-decoration: none; border: none; padding: 10px; cursor: pointer; }
+        .btn-event-fb { background: #1877F2; }
+        .btn-event-ig { background: linear-gradient(45deg, #f09433, #dc2743, #bc1888); }
+        .btn-event-zip { height: 45px; padding: 0 20px; border-radius: 25px; display: flex; align-items: center; justify-content: center; background: #1c1c22; color: #ffffff; font-size: 11px; font-weight: bold; cursor: pointer; border: 1px solid rgba(255,255,255,0.1); }
+        
+        #gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; padding: 15px; max-width: 1000px; margin: 0 auto; }
+        .img-card { background: var(--card); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); cursor: pointer; }
+        .img-card img { width: 100%; height: 200px; object-fit: cover; }
+        .card-label { padding: 10px; text-align: center; font-size: 10px; font-weight: bold; }
+        
+        #photoModal { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 1000; }
+        #modalContent { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; height: 100vh; align-items: center; }
+        .folder-item { min-width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; scroll-snap-align: center; }
+        .zoom-container { width: 90%; height: 50%; display: flex; align-items: center; justify-content: center; }
+        .folder-item img { max-width: 100%; max-height: 100%; border-radius: 10px; }
+        
+        .close-x { position: absolute; top: 20px; left: 20px; font-size: 20px; cursor: pointer; z-index: 6000; background: rgba(0,0,0,0.5); border-radius: 50%; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center; }
+        .modal-ui { position: absolute; bottom: 0; width: 100%; padding-bottom: 30px; z-index: 5000; }
+        .thumb-strip { display: flex; justify-content: center; gap: 8px; margin-bottom: 15px; overflow-x: auto; padding: 0 10px; }
+        .mini-thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; cursor: pointer; opacity: 0.5; }
+        .mini-thumb.active { border: 2px solid var(--accent); opacity: 1; }
+        .modal-actions { display: flex; justify-content: center; gap: 8px; }
+        .btn-photo-fb, .btn-photo-ig { width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; }
+        .btn-photo-fb { background: #1877F2; }
+        .btn-photo-ig { background: linear-gradient(45deg, #f09433, #dc2743, #bc1888); }
+        .dl-btn, .zip-btn { background: var(--accent); color: #000; height: 45px; padding: 0 15px; border-radius: 25px; text-decoration: none; font-weight: bold; font-size: 11px; display: flex; align-items: center; cursor: pointer; border: none; }
+        .toast-alert { position: fixed; top: -100px; left: 50%; transform: translateX(-50%); background: #00ff88; color: #000; padding: 10px 20px; border-radius: 30px; font-weight: bold; z-index: 9999; transition: top 0.4s; }
+        .toast-alert.show { top: 20px; }
+    </style>
+</head>
+<body data-theme="dark">
+    <div id="toastAlert" class="toast-alert"></div>
+    <button class="theme-toggle" onclick="toggleTheme()">🌓</button>
+
+    <header class="main-header">
+        <h1 class="main-title">JUSTPOSE PHOTOBOOTH</h1>
+        <div class="sub-title">Premium Studio Gallery</div>
+        <div class="loader-box"><span id="eventSubtitle">INITIALIZING...</span><div class="bar-bg"><div class="bar-fill"></div></div></div>
+        <div class="master-actions-container">
+            <div class="master-actions">
+                <a id="fbEventShareBtn" href="#" target="_blank" class="btn-event-fb"><svg viewBox="0 0 24 24" fill="white" width="20"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-3 7h-1.924c-.615 0-.714.252-.714.793v1.447h2.583l-.333 2.76h-2.25v7h-3v-7h-2v-2.76h2v-2.008c0-2.01 1.194-3.116 2.94-3.116.836 0 1.555.062 1.765.09v2.049z"/></svg></a>
+                <button class="btn-event-ig" onclick="copyMainGalleryLink()"><svg viewBox="0 0 24 24" fill="white" width="20"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.051.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg></button>
+                <button class="btn-event-zip" onclick="downloadAllSessionsMasterZip()">DOWNLOAD ALL</button>
+            </div>
+        </div>
+    </header>
+
+    <div id="gallery"></div>
+
+    <div id="photoModal">
+        <div class="close-x" onclick="closeModal()">✕</div>
+        <div id="modalContent" onscroll="syncUI()"></div>
+        <div class="modal-ui">
+            <div id="miniThumbContainer" class="thumb-strip"></div>
+            <div class="modal-actions">
+                <a id="individualPhotoFbBtn" href="#" target="_blank" class="btn-photo-fb"><svg viewBox="0 0 24 24" fill="white" width="20"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-3 7h-1.924c-.615 0-.714.252-.714.793v1.447h2.583l-.333 2.76h-2.25v7h-3v-7h-2v-2.76h2v-2.008c0-2.01 1.194-3.116 2.94-3.116.836 0 1.555.062 1.765.09v2.049z"/></svg></a>
+                <button class="btn-photo-ig" onclick="copyActivePhotoLink()"><svg viewBox="0 0 24 24" fill="white" width="20"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.051.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg></button>
+                <a id="mainDownloadBtn" href="#" class="dl-btn" download>DOWNLOAD</a>
+                <button class="zip-btn" onclick="downloadCurrentSessionZip()">DOWNLOAD ALL</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const cloudName = urlParams.get('cloud') || "dgjopnusr";
+        const eventId = urlParams.get('event') || "test2";
+        let sessionGroups = {}, currentPhotos = [], activePhotoIndex = 0, currentActiveSessionName = "";
+
+        function toggleTheme() { document.body.setAttribute('data-theme', document.body.getAttribute('data-theme') === 'light' ? 'dark' : 'light'); }
+        function showToast(msg) { const t = document.getElementById('toastAlert'); t.innerText = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2000); }
+        function copyMainGalleryLink() { navigator.clipboard.writeText(window.location.href).then(() => showToast("LINK COPIED!")); }
+        function copyActivePhotoLink() { const img = currentPhotos[activePhotoIndex]; const url = `https://res.cloudinary.com/${cloudName}/image/upload/v${img.version}/${img.public_id}.${img.format}`; navigator.clipboard.writeText(url).then(() => showToast("PHOTO LINK COPIED!")); }
+        function closeModal() { document.getElementById('photoModal').style.display = "none"; }
+
+        async function load() {
+            try {
+                const res = await fetch(`https://res.cloudinary.com/${cloudName}/image/list/${eventId}.json`);
+                const data = await res.json();
+                document.getElementById('eventSubtitle').innerText = "EVENT: " + eventId.toUpperCase();
+                document.getElementById('fbEventShareBtn').href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`;
+                sessionGroups = {};
+                data.resources.forEach(img => {
+                    const s = img.public_id.split('/').length > 1 ? img.public_id.split('/')[img.public_id.split('/').length - 2] : "SESS_MAIN";
+                    if (!sessionGroups[s]) sessionGroups[s] = [];
+                    sessionGroups[s].push(img);
+                });
+                document.getElementById('gallery').innerHTML = Object.keys(sessionGroups).sort().map(s => {
+                    const p = sessionGroups[s][0];
+                    return `<div class="img-card" onclick="openFolder('${s}')">
+                                <img src="https://res.cloudinary.com/${cloudName}/image/upload/w_400,c_fill/v${p.version}/${p.public_id}.${p.format}">
+                                <div class="card-label">SESSION: ${s.replace('SESS_', '')}</div>
+                            </div>`;
+                }).join('');
+            } catch(e) {}
+        }
+
+        function openFolder(s) {
+            currentActiveSessionName = s;
+            currentPhotos = sessionGroups[s];
+            document.getElementById('photoModal').style.display = "block";
+            document.getElementById('modalContent').innerHTML = currentPhotos.map(img => `
+                <div class="folder-item"><div class="zoom-container"><img src="https://res.cloudinary.com/${cloudName}/image/upload/v${img.version}/${img.public_id}.${img.format}"></div></div>
+            `).join('');
+            updateUI(0);
+        }
+
+        function syncUI() {
+            const idx = Math.round(document.getElementById('modalContent').scrollLeft / window.innerWidth);
+            updateUI(idx);
+        }
+
+        function updateUI(idx) {
+            activePhotoIndex = idx;
+            const img = currentPhotos[idx];
+            document.getElementById('mainDownloadBtn').href = `https://res.cloudinary.com/${cloudName}/image/upload/fl_attachment/v${img.version}/${img.public_id}.${img.format}`;
+            document.getElementById('individualPhotoFbBtn').href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`https://res.cloudinary.com/${cloudName}/image/upload/v${img.version}/${img.public_id}.${img.format}`)}`;
+            document.getElementById('miniThumbContainer').innerHTML = currentPhotos.map((t, i) => `
+                <img src="https://res.cloudinary.com/${cloudName}/image/upload/w_100,c_fill/v${t.version}/${t.public_id}.${t.format}" 
+                     class="mini-thumb ${i === idx ? 'active' : ''}" onclick="document.getElementById('modalContent').scrollTo({left: ${i} * window.innerWidth})">
+            `).join('');
+        }
+
+        async function downloadAllSessionsMasterZip() {
+            showToast("PACKING ALL...");
+            const zip = new JSZip();
+            for (const s in sessionGroups) {
+                for (const p of sessionGroups[s]) {
+                    const res = await fetch(`https://res.cloudinary.com/${cloudName}/image/upload/v${p.version}/${p.public_id}.${p.format}`);
+                    zip.file(`${s}/${p.public_id.split('/').pop()}.${p.format}`, await res.blob());
+                }
+            }
+            zip.generateAsync({type:"blob"}).then(b => saveAs(b, "GALLERY.zip"));
+        }
+
+        async function downloadCurrentSessionZip() {
+            showToast("PACKING SESSION...");
+            const zip = new JSZip();
+            for (const p of currentPhotos) {
+                const res = await fetch(`https://res.cloudinary.com/${cloudName}/image/upload/v${p.version}/${p.public_id}.${p.format}`);
+                zip.file(`${p.public_id.split('/').pop()}.${p.format}`, await res.blob());
+            }
+            zip.generateAsync({type:"blob"}).then(b => saveAs(b, `SESSION_${currentActiveSessionName}.zip`));
+        }
+
+        load();
+    </script>
+</body>
+</html>
