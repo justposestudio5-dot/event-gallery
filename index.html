@@ -102,31 +102,89 @@
         function copyActivePhotoLink() { const img = currentPhotos[activePhotoIndex]; const url = `https://res.cloudinary.com/${cloudName}/image/upload/v${img.version}/${img.public_id}.${img.format}`; navigator.clipboard.writeText(url).then(() => showToast("PHOTO LINK COPIED!")); }
         function closeModal() { document.getElementById('photoModal').style.display = "none"; }
 
+        // Print first, then Singles 1-4, regardless of Cloudinary response order.
+        function photoKind(img) {
+            const name = (img.public_id || '').split('/').pop().toLowerCase();
+            const tags = Array.isArray(img.tags) ? img.tags.map(t => String(t).toLowerCase()) : [];
+            if (tags.includes('print') || /(?:^|[_-])print(?:s)?(?:$|[_-])/i.test(name)) return 'print';
+            if (tags.includes('single') || /(?:^|[_-])single(?:s)?(?:$|[_-])/i.test(name)) return 'single';
+            return 'other';
+        }
+
+        function photoOrder(img) {
+            const name = (img.public_id || '').split('/').pop();
+            const match = name.match(/^(\d+)[_-]/);
+            return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+        }
+
+        function latestVersion(photos) {
+            return Math.max(0, ...photos.map(p => Number(p.version) || 0));
+        }
+
         async function load() {
+            const subtitle = document.getElementById('eventSubtitle');
+            subtitle.innerText = 'LOADING EVENT: ' + eventId.toUpperCase();
+            document.getElementById('fbEventShareBtn').href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`;
             try {
-                const res = await fetch(`https://res.cloudinary.com/${cloudName}/image/list/${eventId}.json`);
+                // Prevent stale browser/CDN responses when guests refresh the QR page.
+                const endpoint = `https://res.cloudinary.com/${encodeURIComponent(cloudName)}/image/list/${encodeURIComponent(eventId)}.json?t=${Date.now()}`;
+                const res = await fetch(endpoint, {cache: 'no-store'});
+                if (!res.ok) throw new Error(`Cloudinary list unavailable (HTTP ${res.status})`);
                 const data = await res.json();
-                document.getElementById('eventSubtitle').innerText = "EVENT: " + eventId.toUpperCase();
-                document.getElementById('fbEventShareBtn').href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`;
-                sessionGroups = {};
+                if (!Array.isArray(data.resources)) throw new Error('Invalid Cloudinary gallery list');
+                const grouped = {};
                 data.resources.forEach(img => {
-                    const s = img.public_id.split('/').length > 1 ? img.public_id.split('/')[img.public_id.split('/').length - 2] : "SESS_MAIN";
-                    if (!sessionGroups[s]) sessionGroups[s] = [];
-                    sessionGroups[s].push(img);
+                    const parts = String(img.public_id || '').split('/');
+                    if (parts.length < 2) return;
+                    const session = parts[parts.length - 2];
+                    if (!grouped[session]) grouped[session] = [];
+                    grouped[session].push(img);
                 });
-                document.getElementById('gallery').innerHTML = Object.keys(sessionGroups).sort().map(s => {
-                    const p = sessionGroups[s][0];
-                    return `<div class="img-card" onclick="openFolder('${s}')">
-                                <img src="https://res.cloudinary.com/${cloudName}/image/upload/w_400,c_fill/v${p.version}/${p.public_id}.${p.format}">
-                                <div class="card-label">SESSION: ${s.replace('SESS_', '')}</div>
-                            </div>`;
-                }).join('');
-            } catch(e) {}
+
+                sessionGroups = {};
+                Object.entries(grouped).forEach(([session, photos]) => {
+                    const prints = photos.filter(p => photoKind(p) === 'print')
+                        .sort((a, b) => photoOrder(a) - photoOrder(b));
+                    if (!prints.length) return; // Do not show singles-only sessions.
+                    const singles = photos.filter(p => photoKind(p) === 'single')
+                        .sort((a, b) => photoOrder(a) - photoOrder(b));
+                    sessionGroups[session] = [prints[0], ...singles.slice(0, 4)];
+                });
+
+                const sessions = Object.keys(sessionGroups).sort((a, b) => {
+                    const byVersion = latestVersion(sessionGroups[b]) - latestVersion(sessionGroups[a]);
+                    return byVersion || b.localeCompare(a, undefined, {numeric: true});
+                });
+                const gallery = document.getElementById('gallery');
+                gallery.innerHTML = '';
+                sessions.forEach(session => {
+                    const print = sessionGroups[session][0];
+                    const card = document.createElement('div');
+                    card.className = 'img-card';
+                    const preview = document.createElement('img');
+                    preview.loading = 'lazy';
+                    preview.alt = 'Print photo for ' + session;
+                    preview.src = `https://res.cloudinary.com/${cloudName}/image/upload/w_400,c_fill/v${print.version}/${print.public_id}.${print.format}`;
+                    const label = document.createElement('div');
+                    label.className = 'card-label';
+                    label.textContent = `SESSION: ${session.replace(/^SESS_/, '')} · PRINT + ${sessionGroups[session].length - 1} SINGLES`;
+                    card.append(preview, label);
+                    card.addEventListener('click', () => openFolder(session));
+                    gallery.appendChild(card);
+                });
+                subtitle.innerText = `EVENT: ${eventId.toUpperCase()} · ${sessions.length} SESSIONS`;
+                if (!sessions.length) gallery.textContent = 'No completed sessions with a Print photo yet.';
+            } catch (e) {
+                console.error('Gallery loading failed:', e);
+                subtitle.innerText = 'GALLERY UNAVAILABLE';
+                document.getElementById('gallery').textContent = 'Unable to load uploaded photos. Check Cloudinary list access and event tag, then refresh.';
+            }
         }
 
         function openFolder(s) {
             currentActiveSessionName = s;
-            currentPhotos = sessionGroups[s];
+            currentPhotos = sessionGroups[s] || [];
+            if (!currentPhotos.length) return;
             document.getElementById('photoModal').style.display = "block";
             document.getElementById('modalContent').innerHTML = currentPhotos.map(img => `
                 <div class="folder-item"><div class="zoom-container"><img src="https://res.cloudinary.com/${cloudName}/image/upload/v${img.version}/${img.public_id}.${img.format}"></div></div>
@@ -142,6 +200,7 @@
         function updateUI(idx) {
             activePhotoIndex = idx;
             const img = currentPhotos[idx];
+            if (!img) return;
             document.getElementById('mainDownloadBtn').href = `https://res.cloudinary.com/${cloudName}/image/upload/fl_attachment/v${img.version}/${img.public_id}.${img.format}`;
             document.getElementById('individualPhotoFbBtn').href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`https://res.cloudinary.com/${cloudName}/image/upload/v${img.version}/${img.public_id}.${img.format}`)}`;
             document.getElementById('miniThumbContainer').innerHTML = currentPhotos.map((t, i) => `
@@ -173,6 +232,10 @@
         }
 
         load();
+        // Periodically refresh the main gallery when it is not being viewed in the photo modal.
+        setInterval(() => {
+            if (document.getElementById('photoModal').style.display !== 'block') load();
+        }, 30000);
     </script>
 </body>
 </html>
